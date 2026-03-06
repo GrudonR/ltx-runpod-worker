@@ -2,7 +2,6 @@ FROM nvidia/cuda:12.9.1-cudnn-runtime-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
-ENV UV_LINK_MODE=copy
 ENV HF_HOME=/runpod-volume/hf-cache
 ENV HUGGINGFACE_HUB_CACHE=/runpod-volume/hf-cache
 ENV LTX_CACHE_ROOT=/runpod-volume/ltx
@@ -23,14 +22,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
-RUN git clone https://github.com/Lightricks/LTX-2.git /opt/LTX-2 \
+# Clone repo, install deps, clean caches — all in one layer to minimize disk use
+RUN git clone --depth 1 https://github.com/Lightricks/LTX-2.git /opt/LTX-2 \
     && cd /opt/LTX-2 \
-    && git checkout ${LTX_REPO_COMMIT}
-
-WORKDIR /opt/LTX-2
-
-RUN uv sync --frozen --no-dev \
-    && uv pip install --python .venv/bin/python --no-cache-dir runpod huggingface_hub requests
+    && git fetch --depth 1 origin ${LTX_REPO_COMMIT} \
+    && git checkout ${LTX_REPO_COMMIT} \
+    && uv sync --frozen --no-dev \
+    && uv pip install --python .venv/bin/python --no-cache-dir runpod huggingface_hub requests \
+    && rm -rf /root/.cache/uv /root/.cache/pip \
+    && rm -rf .git
 
 COPY handler.py /opt/ltx-worker/handler.py
 
