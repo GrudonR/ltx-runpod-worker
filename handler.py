@@ -151,6 +151,25 @@ def validate_request(payload: dict[str, Any]) -> dict[str, Any]:
     if pipeline not in VALID_PIPELINES:
         raise InputError(f"pipeline must be one of: {', '.join(sorted(VALID_PIPELINES))}")
 
+    # Quality parameters — only used by two_stages / two_stages_hq
+    num_inference_steps = payload.get("num_inference_steps")
+    if num_inference_steps is not None:
+        num_inference_steps = int(num_inference_steps)
+        if num_inference_steps < 1 or num_inference_steps > 100:
+            raise InputError("num_inference_steps must be between 1 and 100")
+
+    video_cfg_guidance_scale = payload.get("video_cfg_guidance_scale")
+    if video_cfg_guidance_scale is not None:
+        video_cfg_guidance_scale = float(video_cfg_guidance_scale)
+
+    video_stg_guidance_scale = payload.get("video_stg_guidance_scale")
+    if video_stg_guidance_scale is not None:
+        video_stg_guidance_scale = float(video_stg_guidance_scale)
+
+    video_rescale_scale = payload.get("video_rescale_scale")
+    if video_rescale_scale is not None:
+        video_rescale_scale = float(video_rescale_scale)
+
     return {
         "prompt": prompt,
         "width": width,
@@ -164,6 +183,10 @@ def validate_request(payload: dict[str, Any]) -> dict[str, Any]:
         "output_upload_url": payload.get("output_upload_url"),
         "return_base64": bool(payload.get("return_base64", True)),
         "raw_images": raw_images,
+        "num_inference_steps": num_inference_steps,
+        "video_cfg_guidance_scale": video_cfg_guidance_scale,
+        "video_stg_guidance_scale": video_stg_guidance_scale,
+        "video_rescale_scale": video_rescale_scale,
     }
 
 
@@ -319,6 +342,17 @@ def build_command(
         command.extend(["--quantization", payload["quantization"]])
     if payload["enhance_prompt"]:
         command.append("--enhance-prompt")
+
+    # Quality parameters (two_stages / two_stages_hq only)
+    if pipeline in ("two_stages", "two_stages_hq"):
+        if payload.get("num_inference_steps") is not None:
+            command.extend(["--num-inference-steps", str(payload["num_inference_steps"])])
+        if payload.get("video_cfg_guidance_scale") is not None:
+            command.extend(["--video-cfg-guidance-scale", str(payload["video_cfg_guidance_scale"])])
+        if payload.get("video_stg_guidance_scale") is not None:
+            command.extend(["--video-stg-guidance-scale", str(payload["video_stg_guidance_scale"])])
+        if payload.get("video_rescale_scale") is not None:
+            command.extend(["--video-rescale-scale", str(payload["video_rescale_scale"])])
 
     # Image conditioning: --image PATH FRAME_IDX STRENGTH [CRF]
     for img in resolved_images:
