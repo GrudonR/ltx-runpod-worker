@@ -23,8 +23,8 @@ LTX_REPO_COMMIT = os.getenv("LTX_REPO_COMMIT", "unknown")
 LTX_MODEL_REPO = os.getenv("LTX_MODEL_REPO", "Lightricks/LTX-2.3")
 LTX_GEMMA_REPO = os.getenv("LTX_GEMMA_REPO", "google/gemma-3-12b-it-qat-q4_0-unquantized")
 LTX_CHECKPOINT_NAME = os.getenv("LTX_CHECKPOINT_NAME", "ltx-2.3-22b-distilled.safetensors")
-LTX_CHECKPOINT_FULL_NAME = os.getenv("LTX_CHECKPOINT_FULL_NAME", "ltx-2.3-22b.safetensors")
-LTX_DISTILLED_LORA_NAME = os.getenv("LTX_DISTILLED_LORA_NAME", "ltx-2.3-22b-distilled-lora-v2.safetensors")
+LTX_CHECKPOINT_FULL_NAME = os.getenv("LTX_CHECKPOINT_FULL_NAME", "ltx-2.3-22b-dev.safetensors")
+LTX_DISTILLED_LORA_NAME = os.getenv("LTX_DISTILLED_LORA_NAME", "ltx-2.3-22b-distilled-lora-384.safetensors")
 LTX_SPATIAL_UPSAMPLER_NAME = os.getenv("LTX_SPATIAL_UPSAMPLER_NAME", "ltx-2.3-spatial-upscaler-x2-1.0.safetensors")
 
 VALID_PIPELINES = {"distilled", "two_stages", "two_stages_hq"}
@@ -298,7 +298,7 @@ def build_command(
             str(LTX_VENV_PYTHON), "-m", module,
             "--checkpoint-path", assets["full_checkpoint_path"],
             "--spatial-upsampler-path", assets["spatial_upsampler_path"],
-            "--distilled-lora", assets["distilled_lora_path"],
+            "--distilled-lora", assets["distilled_lora_path"], "0.8",
         ]
     else:
         raise InputError(f"unknown pipeline: {pipeline}")
