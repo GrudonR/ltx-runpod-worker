@@ -23,7 +23,11 @@ LTX_REPO_COMMIT = os.getenv("LTX_REPO_COMMIT", "unknown")
 LTX_MODEL_REPO = os.getenv("LTX_MODEL_REPO", "Lightricks/LTX-2.3")
 LTX_GEMMA_REPO = os.getenv("LTX_GEMMA_REPO", "google/gemma-3-12b-it-qat-q4_0-unquantized")
 LTX_CHECKPOINT_NAME = os.getenv("LTX_CHECKPOINT_NAME", "ltx-2.3-22b-distilled.safetensors")
+LTX_CHECKPOINT_FULL_NAME = os.getenv("LTX_CHECKPOINT_FULL_NAME", "ltx-2.3-22b.safetensors")
+LTX_DISTILLED_LORA_NAME = os.getenv("LTX_DISTILLED_LORA_NAME", "ltx-2.3-22b-distilled-lora-v2.safetensors")
 LTX_SPATIAL_UPSAMPLER_NAME = os.getenv("LTX_SPATIAL_UPSAMPLER_NAME", "ltx-2.3-spatial-upscaler-x2-1.0.safetensors")
+
+VALID_PIPELINES = {"distilled", "two_stages", "two_stages_hq"}
 LTX_CACHE_ROOT = Path(os.getenv("LTX_CACHE_ROOT", "/runpod-volume/ltx"))
 LTX_WORK_ROOT = Path(os.getenv("LTX_WORK_ROOT", "/tmp/ltx"))
 LOCAL_OUTPUT_DIR = Path(os.getenv("LOCAL_OUTPUT_DIR", "/runpod-volume/outputs"))
@@ -143,6 +147,10 @@ def validate_request(payload: dict[str, Any]) -> dict[str, Any]:
         if "frame_index" not in img:
             raise InputError(f"images[{i}]: frame_index is required")
 
+    pipeline = str(payload.get("pipeline", "distilled")).strip()
+    if pipeline not in VALID_PIPELINES:
+        raise InputError(f"pipeline must be one of: {', '.join(sorted(VALID_PIPELINES))}")
+
     return {
         "prompt": prompt,
         "width": width,
@@ -151,6 +159,7 @@ def validate_request(payload: dict[str, Any]) -> dict[str, Any]:
         "frame_rate": frame_rate,
         "seed": seed,
         "quantization": quantization,
+        "pipeline": pipeline,
         "enhance_prompt": bool(payload.get("enhance_prompt", False)),
         "output_upload_url": payload.get("output_upload_url"),
         "return_base64": bool(payload.get("return_base64", True)),
@@ -197,8 +206,26 @@ def ensure_assets() -> dict[str, str]:
         ],
     )
 
+    # Full (non-distilled) checkpoint + distilled LoRA for two-stage pipelines
+    full_checkpoint_path = hf_hub_download(
+        repo_id=LTX_MODEL_REPO,
+        filename=LTX_CHECKPOINT_FULL_NAME,
+        token=token,
+        local_dir=str(model_dir),
+        local_dir_use_symlinks=False,
+    )
+    distilled_lora_path = hf_hub_download(
+        repo_id=LTX_MODEL_REPO,
+        filename=LTX_DISTILLED_LORA_NAME,
+        token=token,
+        local_dir=str(model_dir),
+        local_dir_use_symlinks=False,
+    )
+
     _ASSET_CACHE = {
         "checkpoint_path": checkpoint_path,
+        "full_checkpoint_path": full_checkpoint_path,
+        "distilled_lora_path": distilled_lora_path,
         "spatial_upsampler_path": upsampler_path,
         "gemma_root": str(gemma_dir),
     }
@@ -255,31 +282,39 @@ def build_command(
     output_path: Path,
     resolved_images: list[dict[str, Any]],
 ) -> list[str]:
-    command = [
-        str(LTX_VENV_PYTHON),
-        "-m",
-        "ltx_pipelines.distilled",
-        "--distilled-checkpoint-path",
-        assets["checkpoint_path"],
-        "--spatial-upsampler-path",
-        assets["spatial_upsampler_path"],
-        "--gemma-root",
-        assets["gemma_root"],
-        "--prompt",
-        payload["prompt"],
-        "--output-path",
-        str(output_path),
-        "--seed",
-        str(payload["seed"]),
-        "--height",
-        str(payload["height"]),
-        "--width",
-        str(payload["width"]),
-        "--num-frames",
-        str(payload["num_frames"]),
-        "--frame-rate",
-        str(payload["frame_rate"]),
-    ]
+    pipeline = payload.get("pipeline", "distilled")
+
+    # Map pipeline name to module and checkpoint args
+    if pipeline == "distilled":
+        module = "ltx_pipelines.distilled"
+        command = [
+            str(LTX_VENV_PYTHON), "-m", module,
+            "--distilled-checkpoint-path", assets["checkpoint_path"],
+            "--spatial-upsampler-path", assets["spatial_upsampler_path"],
+        ]
+    elif pipeline in ("two_stages", "two_stages_hq"):
+        module = "ltx_pipelines.ti2vid_two_stages_hq" if pipeline == "two_stages_hq" else "ltx_pipelines.ti2vid_two_stages"
+        command = [
+            str(LTX_VENV_PYTHON), "-m", module,
+            "--checkpoint-path", assets["full_checkpoint_path"],
+            "--spatial-upsampler-path", assets["spatial_upsampler_path"],
+            "--distilled-lora", assets["distilled_lora_path"],
+        ]
+    else:
+        raise InputError(f"unknown pipeline: {pipeline}")
+
+    # Common args
+    command.extend([
+        "--gemma-root", assets["gemma_root"],
+        "--prompt", payload["prompt"],
+        "--output-path", str(output_path),
+        "--seed", str(payload["seed"]),
+        "--height", str(payload["height"]),
+        "--width", str(payload["width"]),
+        "--num-frames", str(payload["num_frames"]),
+        "--frame-rate", str(payload["frame_rate"]),
+    ])
+
     if payload["quantization"]:
         command.extend(["--quantization", payload["quantization"]])
     if payload["enhance_prompt"]:
@@ -364,7 +399,7 @@ def run_generation(payload: dict[str, Any]) -> dict[str, Any]:
             "spatial_upsampler": LTX_SPATIAL_UPSAMPLER_NAME,
             "gemma_repo": LTX_GEMMA_REPO,
             "repo_commit": LTX_REPO_COMMIT,
-            "pipeline": "ltx_pipelines.distilled",
+            "pipeline": payload.get("pipeline", "distilled"),
         },
         "input": {
             "prompt": payload["prompt"],
