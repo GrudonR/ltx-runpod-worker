@@ -33,7 +33,10 @@ RUN git clone --depth 1 https://github.com/Lightricks/LTX-2.git /opt/LTX-2 \
     && rm -rf .git
 
 COPY handler.py /opt/ltx-worker/handler.py
+COPY http_server.py /opt/ltx-worker/http_server.py
 
 WORKDIR /opt/ltx-worker
 
-CMD ["/opt/LTX-2/.venv/bin/python", "handler.py"]
+# Default: serverless mode. Set LTX_MODE=http for pod mode.
+ENV LTX_MODE=serverless
+CMD ["/bin/sh", "-c", "if [ \"$LTX_MODE\" = 'http' ]; then exec /opt/LTX-2/.venv/bin/python http_server.py; else exec /opt/LTX-2/.venv/bin/python handler.py; fi"]
