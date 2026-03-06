@@ -17,11 +17,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     git \
     python3 \
-    python3-pip \
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install --no-cache-dir uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
 
 RUN git clone https://github.com/Lightricks/LTX-2.git /opt/LTX-2 \
     && cd /opt/LTX-2 \
